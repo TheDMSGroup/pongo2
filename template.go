@@ -130,7 +130,7 @@ func (tpl *Template) newContextForExecution(context Context) (*Template, *Execut
 	}
 
 	// Create context if none is given
-	newContext := make(Context)
+	newContext := make(Context, len(context)+len(tpl.set.Globals))
 	newContext.Update(tpl.set.Globals)
 
 	if context != nil {
