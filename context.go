@@ -200,6 +200,6 @@ func (ctx *ExecutionContext) OrigError(err error, token *Token) *Error {
 	}
 }
 
-func (ctx *ExecutionContext) Logf(format string, args ...any) {
+func (ctx *ExecutionContext) Logf(format string, args ...interface{}) {
 	ctx.template.set.logf(format, args...)
 }
