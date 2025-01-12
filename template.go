@@ -94,7 +94,24 @@ func newTemplate(set *TemplateSet, name string, isTplString bool, tpl []byte) (*
 	return t, nil
 }
 
-func (tpl *Template) newContextForExecution(context Context) (*Template, *ExecutionContext, error) {
+func (tpl *Template) newContextForExecution(context context) (*Template, *ExecutionContext, error) {
+	err := checkForValidIdentifiers(context.GetIdentifiers())
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Check for clashes with macro names
+	for _, k := range context.GetIdentifiers() {
+		_, has := tpl.exportedMacros[k]
+		if has {
+			return nil, nil, &Error{
+				Filename:  tpl.name,
+				Sender:    "execution",
+				OrigError: fmt.Errorf("context key name '%s' clashes with macro '%s'", k, k),
+			}
+		}
+	}
+
 	if tpl.Options.TrimBlocks || tpl.Options.LStripBlocks {
 		// Issue #94 https://github.com/flosch/pongo2/issues/94
 		// If an application configures pongo2 template to trim_blocks,
@@ -130,32 +147,7 @@ func (tpl *Template) newContextForExecution(context Context) (*Template, *Execut
 	}
 
 	// Create context if none is given
-	newContext := make(Context)
-	newContext.Update(tpl.set.Globals)
-
-	if context != nil {
-		newContext.Update(context)
-
-		if len(newContext) > 0 {
-			// Check for context name syntax
-			err := newContext.checkForValidIdentifiers()
-			if err != nil {
-				return parent, nil, err
-			}
-
-			// Check for clashes with macro names
-			for k := range newContext {
-				_, has := tpl.exportedMacros[k]
-				if has {
-					return parent, nil, &Error{
-						Filename:  tpl.name,
-						Sender:    "execution",
-						OrigError: fmt.Errorf("context key name '%s' clashes with macro '%s'", k, k),
-					}
-				}
-			}
-		}
-	}
+	newContext := mergeContexts(mapContext(tpl.set.Globals), context)
 
 	// Create operational context
 	ctx := newExecutionContext(parent, newContext)
@@ -163,7 +155,7 @@ func (tpl *Template) newContextForExecution(context Context) (*Template, *Execut
 	return parent, ctx, nil
 }
 
-func (tpl *Template) execute(context Context, writer TemplateWriter) error {
+func (tpl *Template) execute(context context, writer TemplateWriter) error {
 	parent, ctx, err := tpl.newContextForExecution(context)
 	if err != nil {
 		return err
@@ -177,11 +169,11 @@ func (tpl *Template) execute(context Context, writer TemplateWriter) error {
 	return nil
 }
 
-func (tpl *Template) newTemplateWriterAndExecute(context Context, writer io.Writer) error {
+func (tpl *Template) newTemplateWriterAndExecute(context context, writer io.Writer) error {
 	return tpl.execute(context, &templateWriter{w: writer})
 }
 
-func (tpl *Template) newBufferAndExecute(context Context) (*bytes.Buffer, error) {
+func (tpl *Template) newBufferAndExecute(context context) (*bytes.Buffer, error) {
 	// Create output buffer
 	// We assume that the rendered template will be 30% larger
 	buffer := bytes.NewBuffer(make([]byte, 0, int(float64(tpl.size)*1.3)))
@@ -194,7 +186,7 @@ func (tpl *Template) newBufferAndExecute(context Context) (*bytes.Buffer, error)
 // Executes the template with the given context and writes to writer (io.Writer)
 // on success. Context can be nil. Nothing is written on error; instead the error
 // is being returned.
-func (tpl *Template) ExecuteWriter(context Context, writer io.Writer) error {
+func (tpl *Template) ExecuteWriter(context context, writer io.Writer) error {
 	buf, err := tpl.newBufferAndExecute(context)
 	if err != nil {
 		return err
@@ -212,13 +204,13 @@ func (tpl *Template) ExecuteWriter(context Context, writer io.Writer) error {
 // performance reasons. This is handy if you need high performance template
 // generation or if you want to manage your own pool of buffers.
 func (tpl *Template) ExecuteWriterUnbuffered(context Context, writer io.Writer) error {
-	return tpl.newTemplateWriterAndExecute(context, writer)
+	return tpl.newTemplateWriterAndExecute(mapContext(context), writer)
 }
 
 // Executes the template and returns the rendered template as a []byte
 func (tpl *Template) ExecuteBytes(context Context) ([]byte, error) {
 	// Execute template
-	buffer, err := tpl.newBufferAndExecute(context)
+	buffer, err := tpl.newBufferAndExecute(mapContext(context))
 	if err != nil {
 		return nil, err
 	}
@@ -228,13 +220,12 @@ func (tpl *Template) ExecuteBytes(context Context) ([]byte, error) {
 // Executes the template and returns the rendered template as a string
 func (tpl *Template) Execute(context Context) (string, error) {
 	// Execute template
-	buffer, err := tpl.newBufferAndExecute(context)
+	buffer, err := tpl.newBufferAndExecute(mapContext(context))
 	if err != nil {
 		return "", err
 	}
 
 	return buffer.String(), nil
-
 }
 
 func (tpl *Template) ExecuteBlocks(context Context, blocks []string) (map[string]string, error) {
@@ -243,21 +234,36 @@ func (tpl *Template) ExecuteBlocks(context Context, blocks []string) (map[string
 
 	parent := tpl
 	for parent != nil {
-		parents = append(parents, parent)
+		// We only want to execute the template if it has a block we want
+		for _, block := range blocks {
+			if _, ok := tpl.blocks[block]; ok {
+				parents = append(parents, parent)
+				break
+			}
+		}
 		parent = parent.parent
 	}
 
 	for _, t := range parents {
-		buffer := bytes.NewBuffer(make([]byte, 0, int(float64(t.size)*1.3)))
-		_, ctx, err := t.newContextForExecution(context)
-		if err != nil {
-			return nil, err
-		}
+		var buffer *bytes.Buffer
+		var ctx *ExecutionContext
+		var err error
 		for _, blockName := range blocks {
 			if _, ok := result[blockName]; ok {
 				continue
 			}
 			if blockWrapper, ok := t.blocks[blockName]; ok {
+				// assign the buffer if we haven't done so
+				if buffer == nil {
+					buffer = bytes.NewBuffer(make([]byte, 0, int(float64(t.size)*1.3)))
+				}
+				// assign the context if we haven't done so
+				if ctx == nil {
+					_, ctx, err = t.newContextForExecution(mapContext(context))
+					if err != nil {
+						return nil, err
+					}
+				}
 				bErr := blockWrapper.Execute(ctx, buffer)
 				if bErr != nil {
 					return nil, bErr
