@@ -12,12 +12,13 @@ type tagIncludeNode struct {
 
 func (node *tagIncludeNode) Execute(ctx *ExecutionContext, writer TemplateWriter) *Error {
 	// Building the context for the template
-	includeCtx := make(Context)
+	var includeCtx context
 
 	// Fill the context with all data from the parent
 	if !node.only {
-		includeCtx.Update(ctx.Public)
-		includeCtx.Update(ctx.Private)
+		includeCtx = mergeContexts(ctx.Public, mergeContexts(ctx.Private, mapContext{})) // todo review this
+	} else {
+		includeCtx = mapContext{}
 	}
 
 	// Put all custom with-pairs into the context
@@ -26,7 +27,7 @@ func (node *tagIncludeNode) Execute(ctx *ExecutionContext, writer TemplateWriter
 		if err != nil {
 			return err
 		}
-		includeCtx[key] = val
+		includeCtx.SetValue(key, val)
 	}
 
 	// Execute the template

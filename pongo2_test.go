@@ -78,7 +78,8 @@ func (s *TestSuite) TestImplicitExecCtx(c *C) {
 	res, err := tpl.Execute(pongo2.Context{
 		"Value": val,
 		"ImplicitExec": func(ctx *pongo2.ExecutionContext) string {
-			return ctx.Public["Value"].(string)
+			v, _ := ctx.Public.GetValue("Value")
+			return v.(string)
 		},
 	})
 

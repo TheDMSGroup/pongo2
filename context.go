@@ -1,10 +1,9 @@
 package pongo2
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
-
-	"errors"
 )
 
 var reIdentifiers = regexp.MustCompile("^[a-zA-Z0-9_]+$")
@@ -22,25 +21,83 @@ func SetAutoescape(newValue bool) {
 //  1. version: returns the version string
 //
 // Template examples for accessing items from your context:
-//     {{ myconstant }}
-//     {{ myfunc("test", 42) }}
-//     {{ user.name }}
-//     {{ pongo2.version }}
+//
+//	{{ myconstant }}
+//	{{ myfunc("test", 42) }}
+//	{{ user.name }}
+//	{{ pongo2.version }}
 type Context map[string]interface{}
 
-func (c Context) checkForValidIdentifiers() *Error {
-	for k, v := range c {
-		if !reIdentifiers.MatchString(k) {
+type context interface {
+	GetValue(key string) (interface{}, bool)
+	SetValue(string, interface{})
+	GetIdentifiers() []string
+}
+
+type mapContext map[string]interface{}
+
+func (m mapContext) GetValue(key string) (interface{}, bool) {
+	v, ok := m[key]
+	return v, ok
+}
+
+func (m mapContext) SetValue(key string, val interface{}) {
+	m[key] = val
+}
+
+func (m mapContext) GetIdentifiers() []string {
+	identifiers := make([]string, 0, len(m))
+	for i := range m {
+		identifiers = append(identifiers, i)
+	}
+	return identifiers
+}
+
+func checkForValidIdentifiers(identifiers []string) *Error {
+	for _, v := range identifiers {
+		if !reIdentifiers.MatchString(v) {
 			return &Error{
 				Sender:    "checkForValidIdentifiers",
-				OrigError: fmt.Errorf("context-key '%s' (value: '%+v') is not a valid identifier", k, v),
+				OrigError: fmt.Errorf("context-key '%s' is not a valid identifier", v),
 			}
 		}
 	}
 	return nil
 }
 
+type mergedContext struct {
+	a, b context
+}
+
+func (m mergedContext) GetValue(key string) (interface{}, bool) {
+	val, had := m.b.GetValue(key)
+	if !had {
+		val, had = m.a.GetValue(key)
+	}
+	return val, had
+}
+
+func (m mergedContext) SetValue(key string, val interface{}) {
+	m.b.SetValue(key, val)
+}
+
+func (m mergedContext) GetIdentifiers() []string {
+	identifiers := make([]string, 0)
+	if len(m.a.GetIdentifiers()) > 0 {
+		identifiers = append(identifiers, m.a.GetIdentifiers()...)
+	}
+	if len(m.b.GetIdentifiers()) > 0 {
+		identifiers = append(identifiers, m.b.GetIdentifiers()...)
+	}
+	return identifiers
+}
+
+func mergeContexts(a, b context) context {
+	return mergedContext{a: a, b: b}
+}
+
 // Update updates this context with the key/value-pairs from another context.
+// / todo solve by wrapping
 func (c Context) Update(other Context) Context {
 	for k, v := range other {
 		c[k] = v
@@ -64,28 +121,29 @@ func (c Context) Update(other Context) Context {
 // To create your own execution context within tags, use the
 // NewChildExecutionContext(parent) function.
 type ExecutionContext struct {
-	template *Template
+	template   *Template
+	macroDepth int
 
 	Autoescape bool
-	Public     Context
-	Private    Context
-	Shared     Context
+	Public     context
+	Private    context
+	Shared     context
 }
 
-var pongo2MetaContext = Context{
+var pongo2MetaContext = mapContext{
 	"version": Version,
 }
 
-func newExecutionContext(tpl *Template, ctx Context) *ExecutionContext {
-	privateCtx := make(Context)
-
+func newExecutionContext(tpl *Template, ctx context) *ExecutionContext {
 	// Make the pongo2-related funcs/vars available to the context
-	privateCtx["pongo2"] = pongo2MetaContext
+	privateCtx := mapContext{
+		"pongo2": pongo2MetaContext,
+	}
 
 	return &ExecutionContext{
 		template: tpl,
 
-		Public:     ctx,
+		Public:     mergeContexts(ctx, mapContext{}),
 		Private:    privateCtx,
 		Autoescape: autoescape,
 	}
@@ -96,13 +154,10 @@ func NewChildExecutionContext(parent *ExecutionContext) *ExecutionContext {
 		template: parent.template,
 
 		Public:     parent.Public,
-		Private:    make(Context),
+		Private:    mergeContexts(parent.Private, mapContext{}),
 		Autoescape: parent.Autoescape,
 	}
 	newctx.Shared = parent.Shared
-
-	// Copy all existing private items
-	newctx.Private.Update(parent.Private)
 
 	return newctx
 }
@@ -132,6 +187,6 @@ func (ctx *ExecutionContext) OrigError(err error, token *Token) *Error {
 	}
 }
 
-func (ctx *ExecutionContext) Logf(format string, args ...interface{}) {
+func (ctx *ExecutionContext) Logf(format string, args ...any) {
 	ctx.template.set.logf(format, args...)
 }
