@@ -185,6 +185,27 @@ func (nv *nodeVariable) FilterApplied(name string) bool {
 	return nv.expr.FilterApplied(name)
 }
 
+func (nv *nodeVariable) GetPositionToken() *Token {
+	return nv.locationToken
+}
+
+func (nv *nodeVariable) Evaluate(ctx *ExecutionContext) (*Value, *Error) {
+	value, err := nv.expr.Evaluate(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if !nv.expr.FilterApplied("safe") && !value.safe && value.IsString() && ctx.Autoescape {
+		// apply escape filter
+		value, err = filters["escape"](value, nil)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return value, nil
+}
+
 func (nv *nodeVariable) Execute(ctx *ExecutionContext, writer TemplateWriter) *Error {
 	value, err := nv.expr.Evaluate(ctx)
 	if err != nil {
