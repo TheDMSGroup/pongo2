@@ -228,6 +228,54 @@ func (tpl *Template) Execute(context Context) (string, error) {
 	return buffer.String(), nil
 }
 
+// ExecuteRaw executes the template and returns the raw evaluated values without string conversion
+// Returns a slice of values for each node in the template
+func (tpl *Template) ExecuteRaw(context Context) ([]interface{}, error) {
+	parent, ctx, err := tpl.newContextForExecution(mapContext(context))
+	if err != nil {
+		return nil, err
+	}
+
+	var values []interface{}
+	for _, node := range parent.root.Nodes {
+		// Skip HTML nodes as they don't have values
+		if _, ok := node.(*nodeHTML); ok {
+			continue
+		}
+
+		// Try to evaluate nodes that support evaluation
+		if evaluator, ok := node.(IEvaluator); ok {
+			val, err := evaluator.Evaluate(ctx)
+			if err != nil {
+				return nil, err
+			}
+			values = append(values, val.Interface())
+		}
+	}
+
+	return values, nil
+}
+
+// ExecuteValue executes the template and returns the first evaluated value directly without string conversion
+// This is useful when the template evaluates to a single expression and you want the raw value
+func (tpl *Template) ExecuteValue(context Context) (interface{}, error) {
+	values, err := tpl.ExecuteRaw(context)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(values) > 0 {
+		return values[0], nil
+	}
+
+	// If no values found, fall back to string execution
+	buffer, err := tpl.newBufferAndExecute(mapContext(context))
+	if err != nil {
+		return nil, err
+	}
+	return buffer.String(), nil
+}
+
 func (tpl *Template) ExecuteBlocks(context Context, blocks []string) (map[string]string, error) {
 	var parents []*Template
 	result := make(map[string]string)

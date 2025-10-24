@@ -268,6 +268,33 @@ func (set *TemplateSet) RenderTemplateFile(fn string, ctx Context) (string, erro
 	return result, nil
 }
 
+// RenderTemplateStringValue is a shortcut and renders a template string directly,
+// returning the raw value instead of a string.
+func (set *TemplateSet) RenderTemplateStringValue(s string, ctx Context) (interface{}, error) {
+	set.firstTemplateCreated = true
+
+	tpl := Must(set.FromString(s))
+	return tpl.ExecuteValue(ctx)
+}
+
+// RenderTemplateBytesValue is a shortcut and renders template bytes directly,
+// returning the raw value instead of a string.
+func (set *TemplateSet) RenderTemplateBytesValue(b []byte, ctx Context) (interface{}, error) {
+	set.firstTemplateCreated = true
+
+	tpl := Must(set.FromBytes(b))
+	return tpl.ExecuteValue(ctx)
+}
+
+// RenderTemplateFileValue is a shortcut and renders a template file directly,
+// returning the raw value instead of a string.
+func (set *TemplateSet) RenderTemplateFileValue(fn string, ctx Context) (interface{}, error) {
+	set.firstTemplateCreated = true
+
+	tpl := Must(set.FromFile(fn))
+	return tpl.ExecuteValue(ctx)
+}
+
 func (set *TemplateSet) logf(format string, args ...interface{}) {
 	if set.Debug {
 		logger.Printf(fmt.Sprintf("[template set: %s] %s", set.name, format), args...)
