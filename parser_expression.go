@@ -254,7 +254,10 @@ func (expr *simpleExpression) Evaluate(ctx *ExecutionContext) (*Value, error) {
 		case "+":
 			// If one operand is a number and the other is a numeric string,
 			// treat both as numbers and do arithmetic (fixes issue #342).
-			if (result.IsNumber() && t2.CanBeNumber()) || (t2.IsNumber() && result.CanBeNumber()) {
+			// This is opt-in (restores pongo2 v4 behavior); when disabled the
+			// default v5/v6 string-concatenation behavior below is used.
+			if ctx.template.Options.NumericStringArithmetic &&
+				((result.IsNumber() && t2.CanBeNumber()) || (t2.IsNumber() && result.CanBeNumber())) {
 				if result.IsFloat() || t2.IsFloat() || (result.IsString() && strings.Contains(result.String(), ".")) || (t2.IsString() && strings.Contains(t2.String(), ".")) {
 					// Result will be a float
 					return AsValue(result.Float() + t2.Float()), nil

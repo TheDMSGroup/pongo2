@@ -417,9 +417,11 @@ func TestIssue209(t *testing.T) {
 }
 
 func TestIssue342(t *testing.T) {
-	// Test that adding a numeric string and a number results in arithmetic addition.
+	// Test that, with the opt-in NumericStringArithmetic option enabled, adding
+	// a numeric string and a number results in arithmetic addition.
 	// Bug: In v6, "10" + 5 returns "105" (string concatenation).
-	// Expected: "10" + 5 should return 15 (arithmetic addition) as in v4.
+	// With the option on, "10" + 5 returns 15 (arithmetic addition) as in v4.
+	// The option is off by default; see TestIssue342DefaultIsConcatenation.
 	// See: https://github.com/flosch/pongo2/issues/342
 
 	tests := []struct {
@@ -481,6 +483,45 @@ func TestIssue342(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tpl, err := pongo2.FromString(tt.template)
+			if err != nil {
+				t.Fatalf("failed to parse template: %v", err)
+			}
+
+			// Opt in to the v4 numeric-string arithmetic behavior.
+			tpl.Options.NumericStringArithmetic = true
+
+			result, err := tpl.Execute(tt.context)
+			if err != nil {
+				t.Fatalf("failed to execute template: %v", err)
+			}
+
+			if result != tt.expected {
+				t.Errorf("expected %q, got %q", tt.expected, result)
+			}
+		})
+	}
+}
+
+func TestIssue342DefaultIsConcatenation(t *testing.T) {
+	// With the NumericStringArithmetic option left at its default (false), the
+	// "+" operator keeps the v5/v6 string-concatenation behavior. This guards
+	// against the fix re-introducing a breaking change for existing users.
+	// See: https://github.com/flosch/pongo2/issues/342
+
+	tests := []struct {
+		name     string
+		context  pongo2.Context
+		expected string
+	}{
+		{"numeric string + integer", pongo2.Context{"a": "10", "b": 5}, "105"},
+		{"integer + numeric string", pongo2.Context{"a": 5, "b": "10"}, "510"},
+		{"numeric string + float", pongo2.Context{"a": "10.5", "b": 2.5}, "10.52.500000"},
+		{"non-numeric string + integer", pongo2.Context{"a": "hello", "b": 5}, "hello5"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tpl, err := pongo2.FromString("{{ a + b }}")
 			if err != nil {
 				t.Fatalf("failed to parse template: %v", err)
 			}
