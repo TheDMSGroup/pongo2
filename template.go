@@ -230,36 +230,31 @@ func (tpl *Template) newContextForExecution(context Context) (*Template, *Execut
 		parent = parent.parent
 	}
 
-	// Create context if none is given
-	newContext := make(Context)
-	newContext.Update(tpl.set.Globals)
+	// The user-supplied context is used directly (no copy); the set's globals
+	// are layered behind it by the execution context's Public view rather than
+	// merged into a fresh map.
+	if len(context) > 0 {
+		// Check for context name syntax
+		err := context.checkForValidIdentifiers()
+		if err != nil {
+			return parent, nil, err
+		}
 
-	if context != nil {
-		newContext.Update(context)
-
-		if len(newContext) > 0 {
-			// Check for context name syntax
-			err := newContext.checkForValidIdentifiers()
-			if err != nil {
-				return parent, nil, err
-			}
-
-			// Check for clashes with macro names
-			for k := range newContext {
-				_, has := tpl.exportedMacros[k]
-				if has {
-					return parent, nil, &Error{
-						Filename:  tpl.name,
-						Sender:    "execution",
-						OrigError: fmt.Errorf("context key name '%s' clashes with macro '%s'", k, k),
-					}
+		// Check for clashes with macro names
+		for k := range context {
+			_, has := tpl.exportedMacros[k]
+			if has {
+				return parent, nil, &Error{
+					Filename:  tpl.name,
+					Sender:    "execution",
+					OrigError: fmt.Errorf("context key name '%s' clashes with macro '%s'", k, k),
 				}
 			}
 		}
 	}
 
 	// Create operational context
-	ctx := newExecutionContext(parent, newContext)
+	ctx := newExecutionContext(parent, context)
 
 	return parent, ctx, nil
 }

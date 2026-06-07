@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+### Performance
+
+- **Execution context**: Child contexts (created by `{% for %}`, `{% with %}`, `{% macro %}`, and `block.Super`) no longer copy the parent's private data — they layer over it via a scope chain. The user-supplied context and set globals are no longer merged into a fresh map on each `Execute`; they are resolved through a read-only view. This removes the per-nesting-level copy and the per-`Execute` merge. Rendering output is unchanged.
+
+### Backwards-Incompatible Changes
+
+- **`ExecutionContext.Private`** changed from `Context` (a map) to `Scope`. Custom tags must use methods instead of indexing:
+  - `ctx.Private[k]` → `ctx.Private.Get(k)` (returns `(any, bool)`)
+  - `ctx.Private[k] = v` → `ctx.Private.Set(k, v)`
+  - `delete(ctx.Private, k)` → `ctx.Private.Delete(k)`
+  - `for k, v := range ctx.Private` → `ctx.Private.Range(func(k string, v any) bool { ... })`
+  - `ctx.Private.Update(m)` → call `ctx.Private.Set` per entry
+- **`ExecutionContext.Public`** changed from `Context` (a map) to `PublicContext`, a read-only view over the user context and set globals:
+  - `ctx.Public[k]` → `ctx.Public.Get(k)` (returns `(any, bool)`; includes globals)
+  - Globals are no longer present as plain entries in `Public`; reach them via `Get`/`Range`.
+  - `Public` has no setter (template data is read-only by contract).
+
 ## v7.0.0-alpha.2
 
 This release brings pongo2 significantly closer to Django template behavior.
