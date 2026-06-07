@@ -240,14 +240,17 @@ func (tpl *Template) newContextForExecution(context Context) (*Template, *Execut
 			return parent, nil, err
 		}
 
-		// Check for clashes with macro names
-		for k := range context {
-			_, has := tpl.exportedMacros[k]
-			if has {
-				return parent, nil, &Error{
-					Filename:  tpl.name,
-					Sender:    "execution",
-					OrigError: fmt.Errorf("context key name '%s' clashes with macro '%s'", k, k),
+		// Check for clashes with macro names. Skip the scan entirely when the
+		// template exports no macros — there is nothing to clash with.
+		if len(tpl.exportedMacros) > 0 {
+			for k := range context {
+				_, has := tpl.exportedMacros[k]
+				if has {
+					return parent, nil, &Error{
+						Filename:  tpl.name,
+						Sender:    "execution",
+						OrigError: fmt.Errorf("context key name '%s' clashes with macro '%s'", k, k),
+					}
 				}
 			}
 		}
