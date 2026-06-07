@@ -5,6 +5,8 @@
 ### Performance
 
 - **Execution context**: Child contexts (created by `{% for %}`, `{% with %}`, `{% macro %}`, and `block.Super`) no longer copy the parent's private data — they layer over it via a scope chain. The user-supplied context and set globals are no longer merged into a fresh map on each `Execute`; they are resolved through a read-only view. This removes the per-nesting-level copy and the per-`Execute` merge. Rendering output is unchanged.
+- **Macro-clash check**: The per-`Execute` scan that compares context keys against exported macro names is now skipped when the template exports no macros (the common case).
+- **`TemplateSet.SkipContextValidation`** (new, default `false`): when set, skips the per-`Execute` check that every context key is a valid identifier. The check scales with context size and only guards against keys that cannot be referenced in a template anyway. Enable it in hot paths that render with large, trusted contexts. With a 1000-key context this drops per-`Execute` context handling from ~19µs to ~0.65µs.
 
 ### Backwards-Incompatible Changes
 

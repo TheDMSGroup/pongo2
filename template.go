@@ -234,10 +234,12 @@ func (tpl *Template) newContextForExecution(context Context) (*Template, *Execut
 	// are layered behind it by the execution context's Public view rather than
 	// merged into a fresh map.
 	if len(context) > 0 {
-		// Check for context name syntax
-		err := context.checkForValidIdentifiers()
-		if err != nil {
-			return parent, nil, err
+		// Check for context name syntax (unless the set opts out for performance).
+		if !tpl.set.SkipContextValidation {
+			err := context.checkForValidIdentifiers()
+			if err != nil {
+				return parent, nil, err
+			}
 		}
 
 		// Check for clashes with macro names. Skip the scan entirely when the

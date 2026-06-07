@@ -693,6 +693,31 @@ func BenchmarkExecuteLargeContext(b *testing.B) {
 	}
 }
 
+// BenchmarkExecuteLargeContextSkipValidation is BenchmarkExecuteLargeContext with
+// per-Execute context validation disabled, showing the cost of validating every
+// key on every render against a large context.
+func BenchmarkExecuteLargeContextSkipValidation(b *testing.B) {
+	const numKeys = 1000
+
+	ctx := make(pongo2.Context, numKeys)
+	for i := 0; i < numKeys; i++ {
+		ctx["key_"+strconv.Itoa(i)] = i
+	}
+
+	set := pongo2.NewSet("bench", pongo2.MustNewLocalFileSystemLoader(""))
+	set.SkipContextValidation = true
+	tpl, err := set.FromString("{{ key_0 }}-{{ key_1 }}-{{ key_999 }}")
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	for b.Loop() {
+		if err := tpl.ExecuteWriterUnbuffered(ctx, io.Discard); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
 func BenchmarkCompileAndExecuteComplex(b *testing.B) {
 	set := pongo2.NewSet("bench", pongo2.MustNewLocalFileSystemLoader(""))
 	buf, err := os.ReadFile("template_tests/complex.tpl")
