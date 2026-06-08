@@ -16,9 +16,9 @@ type tagMacroNode struct {
 }
 
 func (node *tagMacroNode) Execute(ctx *ExecutionContext, writer TemplateWriter) *Error {
-	ctx.Private[node.name] = func(args ...*Value) (*Value, error) {
+	ctx.Private.Set(node.name, func(args ...*Value) (*Value, error) {
 		return node.call(ctx, args...)
-	}
+	})
 
 	return nil
 }
@@ -54,10 +54,12 @@ func (node *tagMacroNode) call(ctx *ExecutionContext, args ...*Value) (*Value, e
 	macroCtx := NewChildExecutionContext(ctx)
 
 	// Register all arguments in the private context
-	macroCtx.Private.Update(argsCtx)
+	for k, v := range argsCtx {
+		macroCtx.Private.Set(k, v)
+	}
 
 	for idx, argValue := range args {
-		macroCtx.Private[node.argsOrder[idx]] = argValue.Interface()
+		macroCtx.Private.Set(node.argsOrder[idx], argValue.Interface())
 	}
 
 	var b bytes.Buffer

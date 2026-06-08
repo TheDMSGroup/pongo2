@@ -129,24 +129,24 @@ func (tpl *Template) newContextForExecution(context Context) (*Template, *Execut
 		parent = parent.parent
 	}
 
-	// Create context if none is given
-	newContext := make(Context)
-	newContext.Update(tpl.set.Globals)
-
-	if context != nil {
-		newContext.Update(context)
-
-		if len(newContext) > 0 {
-			// Check for context name syntax
-			err := newContext.checkForValidIdentifiers()
-			if err != nil {
-				return parent, nil, err
+	// Validate the user-supplied context keys are valid identifiers and don't
+	// clash with exported macro names. This is a single non-allocating pass
+	// over the context (the map is used directly, never copied or materialized
+	// into a slice); the macro-clash check is skipped when the template has no
+	// exported macros, and the whole scan is skipped when SkipContextValidation
+	// is set. Globals are set-level/app-controlled and are not re-validated per
+	// Execute.
+	if !tpl.Options.SkipContextValidation && context != nil {
+		checkMacros := len(tpl.exportedMacros) > 0
+		for k := range context {
+			if !isValidIdentifier(k) {
+				return parent, nil, &Error{
+					Sender:    "checkForValidIdentifiers",
+					OrigError: fmt.Errorf("context-key '%s' is not a valid identifier", k),
+				}
 			}
-
-			// Check for clashes with macro names
-			for k := range newContext {
-				_, has := tpl.exportedMacros[k]
-				if has {
+			if checkMacros {
+				if _, has := tpl.exportedMacros[k]; has {
 					return parent, nil, &Error{
 						Filename:  tpl.name,
 						Sender:    "execution",
@@ -157,8 +157,9 @@ func (tpl *Template) newContextForExecution(context Context) (*Template, *Execut
 		}
 	}
 
-	// Create operational context
-	ctx := newExecutionContext(parent, newContext)
+	// Create operational context. The user context is used directly (not
+	// merged/copied); globals are reached through the Public view.
+	ctx := newExecutionContext(parent, context)
 
 	return parent, ctx, nil
 }

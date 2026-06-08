@@ -2,7 +2,6 @@ package pongo2
 
 import (
 	"errors"
-	"fmt"
 )
 
 var autoescape = true
@@ -18,23 +17,12 @@ func SetAutoescape(newValue bool) {
 //  1. version: returns the version string
 //
 // Template examples for accessing items from your context:
-//     {{ myconstant }}
-//     {{ myfunc("test", 42) }}
-//     {{ user.name }}
-//     {{ pongo2.version }}
+//
+//	{{ myconstant }}
+//	{{ myfunc("test", 42) }}
+//	{{ user.name }}
+//	{{ pongo2.version }}
 type Context map[string]interface{}
-
-func (c Context) checkForValidIdentifiers() *Error {
-	for k, v := range c {
-		if !isValidIdentifier(k) {
-			return &Error{
-				Sender:    "checkForValidIdentifiers",
-				OrigError: fmt.Errorf("context-key '%s' (value: '%+v') is not a valid identifier", k, v),
-			}
-		}
-	}
-	return nil
-}
 
 func isValidIdentifier(s string) bool {
 	for i := range s {
@@ -66,12 +54,14 @@ func (c Context) Update(other Context) Context {
 // have access to the ExecutionContext. This struct stores anything
 // about the current rendering process's Context including
 // the Context provided by the user (field Public).
-// You can safely use the Private context to provide data to the user's
-// template (like a 'forloop'-information). The Shared-context is used
+// You can safely use the Private context (a Scope) to provide data to the
+// user's template (like a 'forloop'-information). The Shared-context is used
 // to share data between tags. All ExecutionContexts share this context.
 //
-// Please be careful when accessing the Public data.
-// PLEASE DO NOT MODIFY THE PUBLIC CONTEXT (read-only).
+// Public is a read-only view over the user-supplied context and the set's
+// globals; the caller's map is used directly (never copied) and must not be
+// mutated during rendering. Private is a non-copying scope chain: a child
+// context layers its own variables over its parent.
 //
 // To create your own execution context within tags, use the
 // NewChildExecutionContext(parent) function.
@@ -79,9 +69,24 @@ type ExecutionContext struct {
 	template *Template
 
 	Autoescape bool
-	Public     Context
-	Private    Context
-	Shared     Context
+
+	// Public is the read-only view of user data overlaying the set's globals.
+	// Access via Public.Get/Has/Range, never by indexing.
+	Public PublicContext
+
+	// parent links a child context to the one it was derived from, forming the
+	// scope chain walked by Private. nil for a root context.
+	parent *ExecutionContext
+
+	// privateVars holds this context's own private layer, allocated lazily on
+	// first write. Parent layers are reached through parent, never copied.
+	privateVars Context
+
+	// Private is engine-managed scoped data (e.g. 'forloop', {% set %} vars,
+	// macros). Access via Private.Get/Set/Delete/Range, never by indexing.
+	Private Scope
+
+	Shared Context
 }
 
 var pongo2MetaContext = Context{
@@ -89,33 +94,29 @@ var pongo2MetaContext = Context{
 }
 
 func newExecutionContext(tpl *Template, ctx Context) *ExecutionContext {
-	privateCtx := make(Context)
-
-	// Make the pongo2-related funcs/vars available to the context
-	privateCtx["pongo2"] = pongo2MetaContext
-
-	return &ExecutionContext{
+	newctx := &ExecutionContext{
 		template: tpl,
 
-		Public:     ctx,
-		Private:    privateCtx,
-		Autoescape: autoescape,
+		// Make the pongo2-related funcs/vars available to the context.
+		privateVars: Context{"pongo2": pongo2MetaContext},
+		Public:      PublicContext{vars: ctx, globals: tpl.set.Globals},
+		Shared:      make(Context),
+		Autoescape:  autoescape,
 	}
+	newctx.Private = Scope{ec: newctx}
+	return newctx
 }
 
 func NewChildExecutionContext(parent *ExecutionContext) *ExecutionContext {
 	newctx := &ExecutionContext{
 		template: parent.template,
+		parent:   parent,
 
 		Public:     parent.Public,
-		Private:    make(Context),
+		Shared:     parent.Shared,
 		Autoescape: parent.Autoescape,
 	}
-	newctx.Shared = parent.Shared
-
-	// Copy all existing private items
-	newctx.Private.Update(parent.Private)
-
+	newctx.Private = Scope{ec: newctx}
 	return newctx
 }
 
