@@ -71,7 +71,8 @@ func (c Context) Update(other Context) Context {
 // to share data between tags. All ExecutionContexts share this context.
 //
 // Please be careful when accessing the Public data.
-// PLEASE DO NOT MODIFY THE PUBLIC CONTEXT (read-only).
+// PLEASE DO NOT MODIFY THE PUBLIC CONTEXT (read-only). When the template set
+// has no globals, it is the caller's own map, not a copy.
 //
 // To create your own execution context within tags, use the
 // NewChildExecutionContext(parent) function.
