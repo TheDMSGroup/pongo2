@@ -129,13 +129,19 @@ func (tpl *Template) newContextForExecution(context Context) (*Template, *Execut
 		parent = parent.parent
 	}
 
-	// Create context if none is given
-	newContext := make(Context)
-	newContext.Update(tpl.set.Globals)
+	// Create context if none is given. Nothing writes to the public context
+	// during execution, so without globals to merge in, the caller's context is
+	// used as is instead of being copied on every Execute.
+	var newContext Context
+	if len(tpl.set.Globals) == 0 && context != nil {
+		newContext = context
+	} else {
+		newContext = make(Context, len(tpl.set.Globals)+len(context))
+		newContext.Update(tpl.set.Globals)
+		newContext.Update(context)
+	}
 
 	if context != nil {
-		newContext.Update(context)
-
 		if len(newContext) > 0 {
 			// Check for context name syntax
 			err := newContext.checkForValidIdentifiers()
@@ -144,13 +150,15 @@ func (tpl *Template) newContextForExecution(context Context) (*Template, *Execut
 			}
 
 			// Check for clashes with macro names
-			for k := range newContext {
-				_, has := tpl.exportedMacros[k]
-				if has {
-					return parent, nil, &Error{
-						Filename:  tpl.name,
-						Sender:    "execution",
-						OrigError: fmt.Errorf("context key name '%s' clashes with macro '%s'", k, k),
+			if len(tpl.exportedMacros) > 0 {
+				for k := range newContext {
+					_, has := tpl.exportedMacros[k]
+					if has {
+						return parent, nil, &Error{
+							Filename:  tpl.name,
+							Sender:    "execution",
+							OrigError: fmt.Errorf("context key name '%s' clashes with macro '%s'", k, k),
+						}
 					}
 				}
 			}
